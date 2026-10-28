@@ -1,37 +1,61 @@
-use std::ops;
 
-pub fn Mux<T>(a: T, b: T, sel: bool) -> T {
-    if !sel {
-        return a;
-    } else {
-        return b;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ALUResult {
+    pub out: u16,
+    pub ng: bool,
+    pub zr: bool,
+}
+
+pub fn mux<T>(a: T, b: T, sel: bool) -> T {
+    if sel { b } else { a }
+}
+
+// 16-bit addition with carry-in and carry-out.
+pub fn add(x: u16, y: u16, cin: bool) -> (u16, bool) {
+    let sum = x as u32 + y as u32 + u32::from(cin);
+    (sum as u16, sum > u16::MAX as u32)
+}
+
+pub fn select_bit(x: u16, bit: u32) -> bool {
+    bit < 16 && (x & (1u16 << bit)) != 0
+}
+
+pub fn alu(
+    x: u16,
+    y: u16,
+    zx: bool,
+    nx: bool,
+    zy: bool,
+    ny: bool,
+    f: bool,
+    no: bool,
+) -> ALUResult {
+    let zeroed_x = mux(x, 0u16, zx);
+    let final_x = mux(zeroed_x, !zeroed_x, nx);
+
+    let zeroed_y = mux(y, 0u16, zy);
+    let final_y = mux(zeroed_y, !zeroed_y, ny);
+
+    let anded = final_x & final_y;
+    let added = add(final_x, final_y, false).0;
+
+    let output = mux(anded, added, f);
+    let final_output = mux(output, !output, no);
+
+    ALUResult {
+        out: final_output,
+        ng: select_bit(final_output, 15),
+        zr: final_output == 0,
     }
 }
 
-pub fn Add<T>(x: T, y: T, cin: T) -> (T, T)  {
-    let sum: T = x ^ y ^ cin;
-    let carry: T = (x & y) | (cin & (x ^ y));   
-    (sum, carry)
-}
-pub fn selectBit<T, U>(x: T, bit: U) -> bool{
-    (0b1110010 >> bit) - ((0b1110010 >> (bit-1)) << 1) == 1
-}
-struct ALUresult {
-    out: u16,
-    ng: bool,
-    zr: bool
-}
-pub fn ALU(x: u16, y: u16, zx: bool, nx: bool, zy: bool, ny: bool, f: bool, no:  bool) -> ALUresult {
-    let ZeroedX = Mux(x, 0, zx);
-    let FinalX = Mux(ZeroedX, !ZeroedX, nx);
-    let ZeroedY = Mux(y, 0, zy);
-    let FinalY = Mux(ZeroedY, !ZeroedY, ny);
-    let Anded = FinalX & FinalY;
-    let Added = Add(FinalX, FinalY, 0);
-    let output = Mux(Anded, Added.0, f);
-    let FinalOuptut = Mux(output, !output, no);
-    ALUresult { out: FinalOuptut, ng: selectBit(FinalOuptut, 15), zr:  FinalOuptut==0}
-}
 fn main() {
+    let result = alu(
+        7, 3,
+        false, false,
+        false, false,
+        true, false,
+    );
 
+    println!("{result:?}");
 }

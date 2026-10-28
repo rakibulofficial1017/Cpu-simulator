@@ -1,4 +1,2 @@
     Checking cpu v0.1.0 (/root/cpu/cpu)
-error: could not compile `cpu` (bin "cpu" test) due to 5 previous errors; 1 warning emitted
-warning: build failed, waiting for other jobs to finish...
-error: could not compile `cpu` (bin "cpu") due to 5 previous errors; 1 warning emitted
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.35s
