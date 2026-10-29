@@ -1,4 +1,4 @@
-use std::result;
+use std::{panic::RefUnwindSafe, result};
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -123,7 +123,7 @@ impl Register {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Copy)]
 pub struct Register16 {
     bits: [Bit; 16],
 }
@@ -134,19 +134,19 @@ impl Register16 {
             bits: [Bit::new(); 16],
         }
     }
-
+    
     pub fn output(&self) -> u16 {
         let mut result = 0u16;
-
+        
         for i in 0..16 {
             if self.bits[i].output() {
                 result |= 1u16 << i;
             }
         }
-
+        
         result
     }
-
+    
     pub fn update(&mut self, input: u16, load: bool, rising: bool) -> u16 {
         for i in 0..16 {
             self.bits[i].update(
@@ -155,11 +155,46 @@ impl Register16 {
                 rising,
             );
         }
-
+        
         self.output()
     }
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RAM8 {
+    registers: [Register16; 8],
+}
 
+impl RAM8 {
+    pub fn new() -> Self {
+        Self {
+            registers: [Register16::new(); 8],
+        }
+    }
+
+    pub fn output(&self, address: u8) -> u16 {
+        self.registers[(address & 0b111) as usize].output()
+    }
+
+    pub fn update(
+        &mut self,
+        input: u16,
+        load: bool,
+        address: u8,
+        rising: bool,
+    ) -> u16 {
+        let selected = (address & 0b111) as usize;
+
+        for i in 0..8 {
+            self.registers[i].update(
+                input,
+                load && i == selected,
+                rising,
+            );
+        }
+
+        self.output(address)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PC {
@@ -217,6 +252,57 @@ pub fn mux<T>(a: T, b: T, sel: bool) -> T {
     if sel { b } else { a }
 }
 
+
+pub fn dmux<T>(in_: T, sel: bool) -> (T, T)
+where T: Default {
+    if sel { 
+        (T::default(), in_) 
+    } else { 
+        (in_, T::default()) 
+    }
+}
+pub fn mux8way<T>(a: T, b: T, c:T, d:T, e:T, f:T,g:T, h:T, sel: u8) -> T {
+    if select_bit_of8(sel, 2) {
+        if select_bit_of8(sel, 1) {
+            if select_bit_of8(sel, 0) {
+                h
+            } else {
+                g
+            }
+        } else {
+            if select_bit_of8(sel, 0) {
+                f
+            } else {
+                e
+            }
+        }
+    } else {
+        if select_bit_of8(sel, 1) {
+            if select_bit_of8(sel, 0) {
+                d
+            } else {
+                c
+            }
+        } else {
+            if select_bit_of8(sel, 0) {
+                b
+            } else {
+                a
+            }
+        }
+
+    }
+
+}
+pub fn dmux8way<T: Default>(in_: T, sel: u8) -> [T; 8] {
+    let mut outputs: [T; 8] = [
+        T::default(), T::default(), T::default(), T::default(),
+        T::default(), T::default(), T::default(), T::default()
+    ];
+    outputs[(sel & 0b111) as usize] = in_;
+
+    outputs
+}
 // 16-bit addition with carry-in and carry-out.
 pub fn add(x: u16, y: u16, cin: bool) -> (u16, bool) {
     let sum = x as u32 + y as u32 + u32::from(cin);
