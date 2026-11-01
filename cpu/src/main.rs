@@ -1,6 +1,3 @@
-use std::{panic::RefUnwindSafe, result};
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ALUResult {
     pub out: u16,
@@ -86,7 +83,7 @@ impl Bit {
 }
 
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Copy)]
 pub struct Register {
     bits: [Bit; 8],
 }
@@ -161,17 +158,17 @@ impl Register16 {
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RAM8 {
-    registers: [Register16; 8],
+    registers: Vec<Register16>,
 }
 
 impl RAM8 {
     pub fn new() -> Self {
         Self {
-            registers: [Register16::new(); 8],
+            registers: vec![Register16::new(); 8],
         }
     }
 
-    pub fn output(&self, address: u8) -> u16 {
+    pub fn output(&self, address: u16) -> u16 {
         self.registers[(address & 0b111) as usize].output()
     }
 
@@ -179,7 +176,7 @@ impl RAM8 {
         &mut self,
         input: u16,
         load: bool,
-        address: u8,
+        address: u16,
         rising: bool,
     ) -> u16 {
         let selected = (address & 0b111) as usize;
@@ -195,6 +192,57 @@ impl RAM8 {
         self.output(address)
     }
 }
+macro_rules! define_ram {
+    ($name:ident, $child:ty, $shift:expr) => {
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        pub struct $name {
+            banks: Vec<$child>,
+        }
+
+        impl $name {
+            pub fn new() -> Self {
+                Self {
+                    banks: (0..8)
+                        .map(|_| <$child>::new())
+                        .collect(),
+                }
+            }
+
+            pub fn output(&self, address: u16) -> u16 {
+                let bank = ((address >> $shift) & 0b111) as usize;
+                let local_address = address & ((1 << $shift) - 1);
+
+                self.banks[bank].output(local_address)
+            }
+
+            pub fn update(
+                &mut self,
+                input: u16,
+                load: bool,
+                address: u16,
+                rising: bool,
+            ) -> u16 {
+                let bank = ((address >> $shift) & 0b111) as usize;
+                let local_address = address & ((1 << $shift) - 1);
+
+                self.banks[bank].update(
+                    input,
+                    load,
+                    local_address,
+                    rising,
+                );
+
+                self.output(address)
+            }
+        }
+    };
+}
+
+define_ram!(RAM64,   RAM8,   3);
+define_ram!(RAM512,  RAM64,  6);
+define_ram!(RAM4K,   RAM512, 9);
+define_ram!(RAM16K,  RAM4K,  12);
+define_ram!(RAM64K,  RAM16K, 14);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PC {
@@ -346,28 +394,30 @@ pub fn alu(
 
 fn main() {
     let mut clock = Clock::new();
-    let mut pc = PC::new();
+    let mut ram = RAM64K::new();
 
-    assert_eq!(pc.output(), 0);
-
-
+    // Write 12345 to address 1000.
     let rising = clock.tick();
-    pc.update(100, true, false, false, rising);
-    assert_eq!(pc.output(), 100);
+    ram.update(12345, true, 1000, rising);
 
+    assert_eq!(ram.output(1000), 12345);
 
-    clock.tick(); // Falling edge.
-    pc.update(0, false, true, false, false);
-    let rising = clock.tick();
-    pc.update(0, false, true, false, rising);
-    assert_eq!(pc.output(), 101);
-
-
+    // Write 54321 to address 65535.
     clock.tick();
-    pc.update(500, true, true, true, false);
     let rising = clock.tick();
-    pc.update(500, true, true, true, rising);
-    assert_eq!(pc.output(), 0);
+    ram.update(54321, true, 65535, rising);
 
-    println!("PC tests passed!");
+    assert_eq!(ram.output(65535), 54321);
+
+    // Verify address 1000 retained its value.
+    assert_eq!(ram.output(1000), 12345);
+
+    // Write zero to address 1000.
+    clock.tick();
+    let rising = clock.tick();
+    ram.update(0, true, 1000, rising);
+
+    assert_eq!(ram.output(1000), 0);
+
+    println!("RAM64K tests passed!");
 }
