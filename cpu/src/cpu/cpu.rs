@@ -1,3 +1,4 @@
+use super::micro_op::{MicroOp, Register8 as R8, Register16 as R16};
 
 use crate::hardware::{
     pc::PC,
@@ -27,6 +28,7 @@ pub struct CPU {
     pub dr: Register,
     pub sp: Register16,
     pub memory_request: MemoryRequest,
+    pub ir: Register,
 }
 
 impl CPU {
@@ -34,19 +36,14 @@ impl CPU {
         Self {
             pc: PC::new(),
             acc: Register::new(),
-
             temp_a: Register16::new(),
             temp_b: Register16::new(),
-
             psr: Register16::new(),
-
             sr: Register::new(),
-
             ar: Register16::new(),
             dr: Register::new(),
-
             sp: Register16::new(),
-
+            ir: Register::new(),
             memory_request: MemoryRequest::default(),
         }
     }
@@ -90,6 +87,143 @@ impl CPU {
             self.ar.output(),
             self.dr.output(),
             self.sp.output(),
+            self.ir.output(),
         );
+    }
+
+    pub fn execute_micro_op(
+        &mut self,
+        operation: MicroOp,
+        rising_edge: bool,
+    ) {
+        match operation {
+            // ================================================
+            // 8-BIT TRANSFERS
+            // ================================================
+
+            MicroOp::Move8 { source, destination } => {
+                let value = match source {
+                    R8::ACC => self.acc.output(),
+                    R8::DR  => self.dr.output(),
+                    R8::SR  => self.sr.output(),
+                };
+
+                match destination {
+                    R8::ACC => {
+                        self.acc.update(value, true, rising_edge);
+                    }
+                    R8::DR => {
+                        self.dr.update(value, true, rising_edge);
+                    }
+                    R8::SR => {
+                        self.sr.update(value, true, rising_edge);
+                    }
+                }
+            }
+
+            // ================================================
+            // 16-BIT TRANSFERS
+            // ================================================
+
+            MicroOp::Move16 { source, destination } => {
+                let value = match source {
+                    R16::PC    => self.pc.output(),
+                    R16::AR    => self.ar.output(),
+                    R16::TempA => self.temp_a.output(),
+                    R16::TempB => self.temp_b.output(),
+                    R16::PSR   => self.psr.output(),
+                    R16::SP    => self.sp.output(),
+                };
+
+                match destination {
+                    R16::PC => {
+                        self.pc.update(
+                            value, true, false, false, rising_edge
+                        );
+                    }
+                    R16::AR => {
+                        self.ar.update(value, true, rising_edge);
+                    }
+                    R16::TempA => {
+                        self.temp_a.update(value, true, rising_edge);
+                    }
+                    R16::TempB => {
+                        self.temp_b.update(value, true, rising_edge);
+                    }
+                    R16::PSR => {
+                        self.psr.update(value, true, rising_edge);
+                    }
+                    R16::SP => {
+                        self.sp.update(value, true, rising_edge);
+                    }
+                }
+            }
+
+            // ================================================
+            // 8-BIT → 16-BIT
+            // ================================================
+
+            MicroOp::Extend8To16 { source, destination } => {
+                let value = match source {
+                    R8::ACC => self.acc.output(),
+                    R8::DR  => self.dr.output(),
+                    R8::SR  => self.sr.output(),
+                };
+
+                let value = value as u16;
+
+                match destination {
+                    R16::PC => {
+                        self.pc.update(
+                            value, true, false, false, rising_edge
+                        );
+                    }
+                    R16::AR => {
+                        self.ar.update(value, true, rising_edge);
+                    }
+                    R16::TempA => {
+                        self.temp_a.update(value, true, rising_edge);
+                    }
+                    R16::TempB => {
+                        self.temp_b.update(value, true, rising_edge);
+                    }
+                    R16::PSR => {
+                        self.psr.update(value, true, rising_edge);
+                    }
+                    R16::SP => {
+                        self.sp.update(value, true, rising_edge);
+                    }
+                }
+            }
+
+            // ================================================
+            // 16-BIT → 8-BIT
+            // ================================================
+
+            MicroOp::Truncate16To8 { source, destination } => {
+                let value = match source {
+                    R16::PC    => self.pc.output(),
+                    R16::AR    => self.ar.output(),
+                    R16::TempA => self.temp_a.output(),
+                    R16::TempB => self.temp_b.output(),
+                    R16::PSR   => self.psr.output(),
+                    R16::SP    => self.sp.output(),
+                };
+
+                let value = value as u8;
+
+                match destination {
+                    R8::ACC => {
+                        self.acc.update(value, true, rising_edge);
+                    }
+                    R8::DR => {
+                        self.dr.update(value, true, rising_edge);
+                    }
+                    R8::SR => {
+                        self.sr.update(value, true, rising_edge);
+                    }
+                }
+            }
+        }
     }
 }
