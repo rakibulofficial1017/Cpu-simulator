@@ -77,16 +77,49 @@ impl CPU {
         self.dr.update(response.data, true, rising_edge);
     }
     pub fn debug_registers(&self) {
-        dbg!(
+        println!(
+"
+Reg     Binary              Hex             Decimal 
+PC    = {:016b}, : {:04x},         : {}  
+ACC   = {:08b},         : {:02x},           : {}
+TempA = {:016b}, : {:04x},         : {}
+TempB = {:016b}, : {:04x},         : {}
+PSR   = {:016b}, : {:04x},         : {}
+SR    = {:08b},         : {:02x},           : {}
+AR    = {:016b}, : {:04x},         : {}
+DR    = {:08b},         : {:02x},           : {}
+SP    = {:016b}, : {:04x},         : {}
+IR    = {:08b},         : {:02x},           : {}
+",
+            self.pc.output(),
+            self.pc.output(),
             self.pc.output(),
             self.acc.output(),
+            self.acc.output(),
+            self.acc.output(),
+            self.temp_a.output(),
+            self.temp_a.output(),
             self.temp_a.output(),
             self.temp_b.output(),
+            self.temp_b.output(),
+            self.temp_b.output(),
+            self.psr.output(),
+            self.psr.output(),
             self.psr.output(),
             self.sr.output(),
+            self.sr.output(),
+            self.sr.output(),
+            self.ar.output(),
+            self.ar.output(),
             self.ar.output(),
             self.dr.output(),
+            self.dr.output(),
+            self.dr.output(),
             self.sp.output(),
+            self.sp.output(),
+            self.sp.output(),
+            self.ir.output(),
+            self.ir.output(),
             self.ir.output(),
         );
     }
@@ -209,9 +242,9 @@ impl CPU {
                     R16::PSR   => self.psr.output(),
                     R16::SP    => self.sp.output(),
                 };
-
+                
                 let value = value as u8;
-
+                
                 match destination {
                     R8::ACC => {
                         self.acc.update(value, true, rising_edge);
@@ -223,6 +256,19 @@ impl CPU {
                         self.sr.update(value, true, rising_edge);
                     }
                 }
+            }
+            
+            MicroOp::Increment16 { register } => {
+                match register {
+                    R16::PC    => self.pc.update(0u16, false, true, false, rising_edge),
+                    R16::AR    => self.ar.update(self.pc.output() + 1u16, true, rising_edge),
+                    R16::TempA => self.temp_a.update(self.pc.output() + 1u16, true, rising_edge),
+                    R16::TempB => self.temp_b.update(self.pc.output() + 1u16, true, rising_edge),
+                    R16::PSR   => self.psr.update(self.pc.output() + 1u16, true, rising_edge),
+                    R16::SP    => self.sp.update(self.pc.output() + 1u16, true, rising_edge),
+                };
+                
+                
             }
         }
     }

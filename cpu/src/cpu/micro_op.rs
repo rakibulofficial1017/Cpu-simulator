@@ -41,4 +41,8 @@ pub enum MicroOp {
         source: Register16,
         destination: Register8,
     },
+
+    Increment16 {
+        register: Register16,
+    }
 }

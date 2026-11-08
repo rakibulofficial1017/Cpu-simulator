@@ -63,3 +63,52 @@ impl InstructionDecoder {
         }
     }
 }
+
+
+
+use super::micro_op::{MicroOp, Register16};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ControlState {
+    Fetch,
+    Decode,
+    Execute,
+    Halt,
+}
+
+#[derive(Debug)]
+pub struct ControlUnit {
+    pub state: ControlState,
+    pub microstep: usize,
+}
+
+impl ControlUnit {
+    pub fn new() -> Self {
+        Self {
+            state: ControlState::Fetch,
+            microstep: 0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.state = ControlState::Fetch;
+        self.microstep = 0;
+    }
+
+    pub fn fetch_micro_op(&self) -> Option<MicroOp> {
+        match self.microstep {
+            0 => Some(MicroOp::Move16 {
+                source: Register16::PC,
+                destination: Register16::AR,
+            }),
+
+            1 => None, // Wait for memory response.
+
+            _ => None,
+        }
+    }
+
+    pub fn advance(&mut self) {
+        self.microstep += 1;
+    }
+}

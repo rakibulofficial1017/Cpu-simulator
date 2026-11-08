@@ -2,26 +2,37 @@
 mod hardware;
 mod cpu;
 
-use cpu::cpu::CPU;
-use cpu::micro_op::{MicroOp, Register8};
+use cpu::computer::Computer;
 
 fn main() {
-    let mut cpu = CPU::new();
+    let mut computer = Computer::new();
 
-    // Put 42 into ACC.
-    cpu.acc.update(42, true, true);
+    // Write 20 into RAM[1000].
+    let rising_edge = computer.clock.tick();
 
-    // Transfer ACC -> DR.
-    cpu.execute_micro_op(
-        MicroOp::Move8 {
-            source: Register8::ACC,
-            destination: Register8::DR,
-        },
+    computer.ram.update(
+        20,
         true,
+        1000,
+        rising_edge,
     );
 
-    cpu.debug_registers();
+    // Read RAM[1000].
+    let data = computer.ram.output(1000);
 
-    assert_eq!(cpu.acc.output(), 42);
-    assert_eq!(cpu.dr.output(), 42);
+    // Advance until the next rising edge.
+    let mut rising_edge = false;
+
+    while !rising_edge {
+        rising_edge = computer.clock.tick();
+    }
+
+    computer.cpu.receive_memory_response(
+        cpu::cpu::MemoryResponse { data },
+        rising_edge,
+    );
+
+    computer.cpu.debug_registers();
+
+    assert_eq!(computer.cpu.dr.output(), 20);
 }
