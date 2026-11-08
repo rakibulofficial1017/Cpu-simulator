@@ -1,4 +1,5 @@
 
+
 use super::instruction::Opcode;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -11,6 +12,8 @@ pub struct ControlSignals {
     pub alu_subtract: bool,
     pub jump: bool,
     pub jump_if_zero: bool,
+    pub stack_push: bool,
+    pub stack_pop: bool,
 }
 
 pub struct InstructionDecoder;
@@ -56,14 +59,23 @@ impl InstructionDecoder {
                 ..Default::default()
             },
 
+            Opcode::PUSH => ControlSignals {
+                stack_push: true,
+                ..Default::default()
+            },
+
+            Opcode::POP => ControlSignals {
+                stack_pop: true,
+                ..Default::default()
+            },
+
             Opcode::HLT => ControlSignals {
                 halt: true,
                 ..Default::default()
-            }
+            },
         }
     }
 }
-
 
 
 use super::micro_op::{MicroOp, Register16};

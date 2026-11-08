@@ -1,9 +1,8 @@
 use super::micro_op::{MicroOp, Register8 as R8, Register16 as R16};
 
-use crate::hardware::{
-    pc::PC,
-    register::{Register, Register16},
-};
+use crate::{cpu::micro_op::{ALUDestination, ALUInput}, hardware::{
+    alu::alu, pc::PC, register::{Register, Register16},
+}};
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MemoryRequest {
     pub address: u16,
@@ -11,6 +10,13 @@ pub struct MemoryRequest {
     pub read: bool,
     pub write: bool,
 }
+const FLAG_ZR: u8 = 1 << 7;
+const FLAG_NG: u8 = 1 << 6;
+const FLAG_CY: u8 = 1 << 5;
+const FLAG_OV: u8 = 1 << 4;
+const FLAG_EQ: u8 = 1 << 3;
+const FLAG_GT: u8 = 1 << 2;
+const FLAG_LT: u8 = 1 << 1;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MemoryResponse {
@@ -258,18 +264,92 @@ IR    = {:08b},         : {:02x},           : {}
                 }
             }
             
-            MicroOp::Increment16 { register } => {
-                match register {
-                    R16::PC    => self.pc.update(0u16, false, true, false, rising_edge),
-                    R16::AR    => self.ar.update(self.pc.output() + 1u16, true, rising_edge),
-                    R16::TempA => self.temp_a.update(self.pc.output() + 1u16, true, rising_edge),
-                    R16::TempB => self.temp_b.update(self.pc.output() + 1u16, true, rising_edge),
-                    R16::PSR   => self.psr.update(self.pc.output() + 1u16, true, rising_edge),
-                    R16::SP    => self.sp.update(self.pc.output() + 1u16, true, rising_edge),
-                };
-                
-                
+
+        
+            MicroOp::ALU {
+    a,
+    b,
+    update_flags,
+    compare,
+    destination,
+    zx,
+    nx,
+    zy,
+    ny,
+    f,
+    no,
+} => {
+    let x = match a {
+        ALUInput::ACC => self.acc.output() as u16,
+        ALUInput::DR => self.dr.output() as u16,
+        ALUInput::SR => self.sr.output() as u16,
+        ALUInput::PC => self.pc.output(),
+        ALUInput::AR => self.ar.output(),
+        ALUInput::TempA => self.temp_a.output(),
+        ALUInput::TempB => self.temp_b.output(),
+        ALUInput::PSR => self.psr.output(),
+        ALUInput::SP => self.sp.output(),
+        ALUInput::Immediate(value) => value,
+    };
+
+    let y = match b {
+        ALUInput::ACC => self.acc.output() as u16,
+        ALUInput::DR => self.dr.output() as u16,
+        ALUInput::SR => self.sr.output() as u16,
+        ALUInput::PC => self.pc.output(),
+        ALUInput::AR => self.ar.output(),
+        ALUInput::TempA => self.temp_a.output(),
+        ALUInput::TempB => self.temp_b.output(),
+        ALUInput::PSR => self.psr.output(),
+        ALUInput::SP => self.sp.output(),
+        ALUInput::Immediate(value) => value,
+    };
+
+    let result = alu(x, y, zx, nx, zy, ny, f, no, );
+
+    if update_flags {
+        let mut flags = self.sr.output();
+
+        // Update result flags.
+        flags &= !(FLAG_ZR | FLAG_NG | FLAG_CY | FLAG_OV);
+
+        if result.zr {
+            flags |= FLAG_ZR;
+        }
+
+        if result.ng {
+            flags |= FLAG_NG;
+        }
+
+        if result.cy {
+            flags |= FLAG_CY;
+        }
+
+        if result.ov {
+            flags |= FLAG_OV;
+        }
+
+        // Update comparison flags only for comparison operations.
+        if compare {
+            flags &= !(FLAG_EQ | FLAG_GT | FLAG_LT);
+
+            if result.eq {
+                flags |= FLAG_EQ;
             }
+
+            if result.gt {
+                flags |= FLAG_GT;
+            }
+
+            if result.lt {
+                flags |= FLAG_LT;
+            }
+        }
+
+        self.sr.update(flags, true, rising_edge);
+    }
+
+}
         }
     }
 }

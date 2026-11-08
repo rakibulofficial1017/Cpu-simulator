@@ -4,9 +4,8 @@ use crate::hardware::{
     ram::RAM64K,
 };
 
-use super::cpu::CPU;
+use super::cpu::{CPU, MemoryResponse};
 
-#[derive(Debug)]
 pub struct Computer {
     pub cpu: CPU,
     pub ram: RAM64K,
@@ -20,5 +19,46 @@ impl Computer {
             ram: RAM64K::new(),
             clock: Clock::new(),
         }
+    }
+
+    pub fn tick(&mut self) -> bool {
+        // Advance the clock exactly once.
+        let rising_edge = self.clock.tick();
+
+        // Only process memory operations on rising edges.
+        if !rising_edge {
+            return false;
+        }
+
+        let request = self.cpu.memory_request;
+
+        // A request should not read and write simultaneously.
+        debug_assert!(
+            !(request.read && request.write),
+            "CPU cannot read and write simultaneously"
+        );
+
+        if request.write {
+            self.ram.update(
+                request.data,
+                true,
+                request.address,
+                rising_edge,
+            );
+        }
+
+        if request.read {
+            let data = self.ram.output(request.address);
+
+            self.cpu.receive_memory_response(
+                MemoryResponse { data },
+                rising_edge,
+            );
+        }
+
+        // Each request is serviced only once.
+        self.cpu.clear_memory_request();
+
+        true
     }
 }
