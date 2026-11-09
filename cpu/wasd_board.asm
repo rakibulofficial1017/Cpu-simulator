@@ -1,5 +1,5 @@
 ; Move one screen pixel with WASD. Run with:
-; ./cpu/target/release/cpu --manifest-path cpu/Cargo.toml -- wasd_board.bin --interactive
+; ./cpu/target/release/cpu wasd_board.bin --interactive
 ; Escape exits. The moving pixel is yellow on the 150x40 RGB framebuffer.
 
     LDI #75
