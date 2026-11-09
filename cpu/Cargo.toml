@@ -5,3 +5,10 @@ edition = "2024"
 
 [dependencies]
 bitvec = "1.1.1"
+
+[profile.release]
+opt-level = 3          # Maximum level 3 optimizations for speed
+lto = "fat"            # Fat Link-Time Optimization across all crates (slow compile, max runtime speed)
+codegen-units = 1      # Single codegen unit allows the compiler to optimize the whole crate together
+panic = "abort"        # Abort on panic instead of unwinding (shaves code size and boosts speed)
+strip = true           # Remove debug symbols from the binary to shrink size

@@ -1,8 +1,39 @@
 # CPU Simulator
 
 A Rust implementation of an 8-bit CPU with 16-bit address and temporary
-registers. This README documents the proposed ISA, its complete assigned
-opcode table, and the current limits of single-opcode execution.
+registers. This README covers the ISA, RAM and screen layout, the simulator
+runner, and the included raw-binary sample program.
+
+## Quick start
+
+From the repository root, run the built-in Hello World screen demo:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml
+```
+
+Run the included raw machine-code sample instead:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- cpu/sampleProgram.bin
+```
+
+You can also run commands from the `cpu/` directory:
+
+```sh
+cargo run
+cargo run -- sampleProgram.bin
+```
+
+The simulator requires a terminal that supports ANSI cursor positioning and
+24-bit true-color background escape sequences. The screen renderer draws a
+150-pixel-wide framebuffer, so use a terminal window wide enough to show it.
+
+To run the unit tests:
+
+```sh
+cargo test --manifest-path cpu/Cargo.toml
+```
 
 ## Registers
 
@@ -236,23 +267,84 @@ decoder. There are 204 assigned opcode values and 52 reserved values.
 
 ## Executing instructions in the simulator
 
-`CPU::execute_instruction(opcode: u8)` executes a one-byte instruction.
-`CPU::execute_instruction_with_operands(opcode, operands)` executes an
-instruction with its trailing operand bytes. For example:
+The command-line runner accepts zero or one argument:
 
-```rust
-cpu.execute_instruction_with_operands(0x00, &[0x14])?; // LDI 0x14
-cpu.execute_instruction_with_operands(0x01, &[0x12, 0x34])?; // LDA 0x1234
+```text
+cpu [path/to/program.bin]
 ```
 
-These methods do not fetch instruction bytes or advance `PC`. `LDA` queues a
-memory read at the immediate address; the computer services the request on its
-next tick and places the byte in `DR`. The methods return an error for an
-unassigned opcode, an incorrect number of operand bytes, or an instruction
-whose execution behavior has not been implemented. `INT` accepts its operand
-but is not yet executable; stack operations, calls/returns, interrupt return,
-and shifts/rotations are also not implemented.
+- With no argument, it draws the built-in `HELLO WORLD` bitmap into screen RAM.
+- With a `.bin` path, it reads the file as raw bytes and executes the program.
+- With more than one argument, a non-`.bin` path, or a malformed program, it
+  reports an error and exits.
 
-Execution behavior for the remaining instructions is still under development;
-the opcode assignments describe the ISA allocation, not a guarantee that every
-instruction is currently implemented.
+The runner starts with fresh, zeroed CPU registers and RAM. It reads the binary
+from byte zero, decodes each opcode, reads the number of operand bytes specified
+by that instruction, and executes instructions sequentially. Memory requests
+created by `LDA` or `STA` are serviced before the next instruction. Execution
+stops at `HLT` or at the end of the file. The screen is rendered after the
+program finishes.
+
+This is currently a sequential file runner, not a complete fetch/decode CPU
+loop: it does not fetch instructions from RAM or advance `PC`. Jump opcodes can
+change the CPU's `PC`, but they do not change the runner's file position.
+
+### Writing a binary
+
+A `.bin` file is a sequence of raw opcode and operand bytes. Opcode values and
+operand byte order are described in the tables above. For example:
+
+```text
+00 14       ; LDI 0x14       ACC = 20
+01 10 00    ; LDA 0x1000     AR = 0x1000; read RAM[0x1000] into DR
+02          ; STA            write ACC to RAM[AR]
+C6          ; HLT
+```
+
+The lines above are assembly-style notation for the bytes; comments and spaces
+are not part of a raw binary file. For a minimal runnable example on Unix-like
+systems, create a binary containing `LDI 0x14; HLT` with:
+
+```sh
+printf '\x00\x14\xc6' > hello.bin
+cargo run --manifest-path cpu/Cargo.toml -- hello.bin
+```
+
+There is no assembler yet. The public CPU methods
+`execute_instruction(opcode)` and
+`execute_instruction_with_operands(opcode, operands)` are also available to
+Rust callers. They execute one instruction at a time; neither fetches bytes
+from RAM nor advances `PC`.
+
+The runner reports an invalid opcode with its byte offset, detects a truncated
+operand at the end of a file, and reports unsupported execution with the
+instruction's byte offset. The decoder recognizes every assigned opcode, but
+not every recognized instruction has execution semantics implemented.
+
+Currently executable instructions are `LDI`, `LDA`, `STA`, valid `MOV` forms,
+`CMP`, the arithmetic/logical operations, `INC`, `DEC`, `NOT`, all listed
+jumps, `NOP`, `HLT`, `EI`, and `DI`. `LDA` sets `AR`, requests a read from that
+address, and places the returned byte in `DR`. `STA` writes `ACC` to the
+address in `AR`.
+
+The following currently return an unsupported-instruction error:
+`PUSH`, `POP`, `CALL`, `RET`, `INT`, `IRET`, and `SHL`, `SHR`, `SAR`, `ROL`,
+`ROR`, `RCL`, `RCR`. These instructions have assigned opcodes, but their
+execution details are not fully implemented.
+
+### Sample binary
+
+[`cpu/sampleProgram.bin`](./cpu/sampleProgram.bin) is a raw machine-code
+program that draws yellow `HELLO WORLD` pixel glyphs into the RGB framebuffer
+using repeated `LDI`, `LDA`, and `STA` instructions, then halts. Each lit pixel
+is written as three RGB channel values: for each channel, the program loads the
+color into `ACC`, selects the channel's screen-RAM address, then stores `ACC`
+there. Unlit pixels remain black. Run it from the repository root with:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- cpu/sampleProgram.bin
+```
+
+The sample's output is the same yellow bitmap as the no-argument demo, but the
+pixels are produced by executing machine-code instructions that write to the
+screen's RAM address range.
