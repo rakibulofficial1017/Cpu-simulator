@@ -1,6 +1,7 @@
 #![allow(warnings)]
 mod assembler;
 mod cpu;
+mod disassembler;
 mod hardware;
 
 use cpu::computer::{Computer, SCREEN_HEIGHT, SCREEN_START, SCREEN_WIDTH};
@@ -172,16 +173,66 @@ fn run_assembler(args: &[std::ffi::OsString]) -> Result<(), Box<dyn Error>> {
     assemble_file(Path::new(&args[1]), Path::new(&args[3]))
 }
 
+fn disassemble_file(binary_path: &Path, output_path: Option<&Path>) -> Result<(), Box<dyn Error>> {
+    if binary_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("bin")
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "disassembler input path must have a .bin extension",
+        )
+        .into());
+    }
+    if output_path.is_some_and(|path| {
+        path.extension().and_then(|extension| extension.to_str()) != Some("asm")
+    }) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "disassembler output path must have an .asm extension",
+        )
+        .into());
+    }
+
+    let binary = fs::read(binary_path)?;
+    let assembly = disassembler::disassemble(&binary)?;
+    if let Some(output_path) = output_path {
+        fs::write(output_path, assembly)?;
+    } else {
+        use io::Write;
+        io::stdout().lock().write_all(assembly.as_bytes())?;
+    }
+    Ok(())
+}
+
+fn run_disassembler(args: &[std::ffi::OsString]) -> Result<(), Box<dyn Error>> {
+    match args {
+        [_, input] => disassemble_file(Path::new(input), None),
+        [_, input, output_flag, output] if output_flag == "-o" => {
+            disassemble_file(Path::new(input), Some(Path::new(output)))
+        }
+        _ => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "usage: cpu disassemble <input.bin> [-o <output.asm>]",
+        )
+        .into()),
+    }
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.len() == 1 && matches!(args[0].to_str(), Some("-h" | "--help")) {
         println!(
-            "Usage:\n  cpu [program.bin]\n  cpu assemble <source.asm> -o <output.bin>\n\nWithout a program path, runs the built-in screen demo."
+            "Usage:\n  cpu [program.bin]\n  cpu assemble <source.asm> -o <output.bin>\n  cpu disassemble <input.bin> [-o <output.asm>]\n\nWithout a program path, runs the built-in screen demo."
         );
         return Ok(());
     }
     if args.first().and_then(|arg| arg.to_str()) == Some("assemble") {
         return run_assembler(&args);
+    }
+    if args.first().and_then(|arg| arg.to_str()) == Some("disassemble") {
+        return run_disassembler(&args);
     }
 
     let mut computer = Computer::new();
@@ -201,7 +252,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "usage: cpu [path/to/program.bin] | cpu assemble <source.asm> -o <output.bin>",
+                "usage: cpu [program.bin] | cpu assemble <source.asm> -o <output.bin> | cpu disassemble <input.bin> [-o <output.asm>]",
             )
             .into());
         }

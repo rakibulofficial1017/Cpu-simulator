@@ -240,6 +240,23 @@ Then run the resulting binary:
 cargo run --manifest-path cpu/Cargo.toml -- program.bin
 ```
 
+Disassemble a binary to stdout:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- disassemble program.bin
+```
+
+Or save the disassembly as source:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- disassemble program.bin -o program-disassembled.asm
+```
+
+The disassembler outputs native instructions, `.byte` directives for reserved
+opcode bytes, and byte-offset comments. Reassembling its output reproduces the
+same bytes. Truncated immediate instructions are reported with the byte offset
+instead of producing incomplete assembly.
+
 Run the included screen-writing sample from the repository root with:
 
 ```sh

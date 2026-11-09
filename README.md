@@ -22,6 +22,13 @@ cargo run --manifest-path cpu/Cargo.toml -- assemble program.asm -o program.bin
 cargo run --manifest-path cpu/Cargo.toml -- program.bin
 ```
 
+Disassemble a raw binary to the terminal or save assembly source:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- disassemble cpu/sampleProgram.bin
+cargo run --manifest-path cpu/Cargo.toml -- disassemble cpu/sampleProgram.bin -o sampleProgram.asm
+```
+
 Run the included raw machine-code sample instead:
 
 ```sh
