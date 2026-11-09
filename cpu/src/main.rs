@@ -7,7 +7,12 @@ mod hardware;
 use cpu::computer::{Computer, SCREEN_HEIGHT, SCREEN_START, SCREEN_WIDTH};
 use cpu::decoder::Decoder;
 use cpu::instruction::Instruction;
-use std::{env, error::Error, fs, io, path::Path};
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
+use std::{env, error::Error, fs, io, path::Path, time::Duration};
 
 const GLYPH_WIDTH: usize = 5;
 const GLYPH_HEIGHT: usize = 7;
@@ -73,9 +78,21 @@ fn draw_text(computer: &mut Computer, text: &str, y: usize) {
 }
 
 fn execute_program(computer: &mut Computer, program: &[u8]) -> Result<(), Box<dyn Error>> {
+    execute_program_with_input(computer, program, false)
+}
+
+fn execute_program_with_input(
+    computer: &mut Computer,
+    program: &[u8],
+    interactive: bool,
+) -> Result<(), Box<dyn Error>> {
     let mut offset = 0;
 
     while offset < program.len() {
+        if interactive && event::poll(Duration::from_millis(1))? {
+            computer.handle_input_event(event::read()?);
+        }
+
         let opcode = program[offset];
         let decoded = Decoder::decode(opcode).map_err(|error| {
             io::Error::new(
@@ -119,7 +136,115 @@ fn execute_program(computer: &mut Computer, program: &[u8]) -> Result<(), Box<dy
     Ok(())
 }
 
+fn execute_interactive_program(
+    computer: &mut Computer,
+    program: &[u8],
+) -> Result<(), Box<dyn Error>> {
+    let mut offset = 0usize;
+    let mut rendered_position = None;
+    loop {
+        if event::poll(Duration::from_millis(1))? {
+            let input_event = event::read()?;
+            if matches!(
+                input_event,
+                Event::Key(key)
+                    if key.code == crossterm::event::KeyCode::Esc
+                        && key.kind == crossterm::event::KeyEventKind::Press
+            ) {
+                break;
+            }
+            computer.handle_input_event(input_event);
+        }
+
+        let Some(next_offset) = execute_interactive_step(computer, program, offset)? else {
+            break;
+        };
+
+        let position = (
+            computer.ram.output(cpu::computer::BOARD_X),
+            computer.ram.output(cpu::computer::BOARD_Y),
+        );
+        if rendered_position != Some(position) {
+            if let Some((x, y)) = rendered_position {
+                computer.set_pixel(x as usize, y as usize, [0, 0, 0])?;
+            }
+            computer.set_pixel(position.0 as usize, position.1 as usize, [255, 220, 80])?;
+            computer.update_screen()?;
+            rendered_position = Some(position);
+        }
+
+        offset = next_offset;
+    }
+
+    Ok(())
+}
+
+fn execute_interactive_step(
+    computer: &mut Computer,
+    program: &[u8],
+    offset: usize,
+) -> Result<Option<usize>, Box<dyn Error>> {
+    if offset == program.len() {
+        return Ok(None);
+    }
+    let Some(&opcode) = program.get(offset) else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("program counter {offset} is outside the binary"),
+        )
+        .into());
+    };
+    let decoded = Decoder::decode(opcode).map_err(|error| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("invalid opcode at byte {offset}: {error}"),
+        )
+    })?;
+    let instruction_end = offset + decoded.length() as usize;
+    if instruction_end > program.len() {
+        return Err(io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            format!("truncated {:?} at byte {offset}", decoded.instruction),
+        )
+        .into());
+    }
+
+    computer
+        .cpu
+        .pc
+        .update(instruction_end as u16, true, false, false, true);
+    computer
+        .cpu
+        .execute_instruction_with_operands(opcode, &program[offset + 1..instruction_end])
+        .map_err(|error| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("failed to execute instruction at byte {offset}: {error}"),
+            )
+        })?;
+
+    if computer.cpu.memory_request.read || computer.cpu.memory_request.write {
+        while !computer.tick() {}
+    }
+
+    if computer.cpu.halted {
+        Ok(None)
+    } else if matches!(decoded.instruction, Instruction::Jump(_)) {
+        Ok(Some(computer.cpu.pc.output() as usize))
+    } else {
+        Ok(Some(instruction_end))
+    }
+}
+
 fn run_binary(computer: &mut Computer, path: &Path) -> Result<(), Box<dyn Error>> {
+    run_binary_with_input(computer, path, false)
+}
+
+fn run_binary_with_input(
+    computer: &mut Computer,
+    path: &Path,
+    interactive: bool,
+) -> Result<(), Box<dyn Error>> {
     if path.extension().and_then(|extension| extension.to_str()) != Some("bin") {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -129,7 +254,54 @@ fn run_binary(computer: &mut Computer, path: &Path) -> Result<(), Box<dyn Error>
     }
 
     let program = fs::read(path)?;
-    execute_program(computer, &program)
+    execute_program_with_input(computer, &program, interactive)
+}
+
+struct TerminalInput {
+    active: bool,
+}
+
+impl TerminalInput {
+    fn enable() -> io::Result<Self> {
+        enable_raw_mode()?;
+        if let Err(error) = execute!(io::stdout(), EnableMouseCapture) {
+            let _ = disable_raw_mode();
+            return Err(error);
+        }
+        Ok(Self { active: true })
+    }
+
+    fn restore(&mut self) -> io::Result<()> {
+        let mouse_result = execute!(io::stdout(), DisableMouseCapture);
+        let raw_result = disable_raw_mode();
+        self.active = false;
+        mouse_result.and(raw_result)
+    }
+}
+
+impl Drop for TerminalInput {
+    fn drop(&mut self) {
+        if self.active {
+            let _ = self.restore();
+        }
+    }
+}
+
+fn run_interactive_binary(computer: &mut Computer, path: &Path) -> Result<(), Box<dyn Error>> {
+    let mut terminal = TerminalInput::enable()?;
+    let result = (|| {
+        if path.extension().and_then(|extension| extension.to_str()) != Some("bin") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "program path must have a .bin extension",
+            )
+            .into());
+        }
+        let program = fs::read(path)?;
+        execute_interactive_program(computer, &program)
+    })();
+    terminal.restore()?;
+    result
 }
 
 fn assemble_file(source_path: &Path, output_path: &Path) -> Result<(), Box<dyn Error>> {
@@ -224,7 +396,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = env::args_os().skip(1).collect();
     if args.len() == 1 && matches!(args[0].to_str(), Some("-h" | "--help")) {
         println!(
-            "Usage:\n  cpu [program.bin]\n  cpu assemble <source.asm> -o <output.bin>\n  cpu disassemble <input.bin> [-o <output.asm>]\n\nWithout a program path, runs the built-in screen demo."
+            "Usage:\n  cpu [program.bin [--interactive]]\n  cpu assemble <source.asm> -o <output.bin>\n  cpu disassemble <input.bin> [-o <output.asm>]\n\nWithout a program path, runs the built-in screen demo. Interactive mode captures terminal keyboard and mouse events into reserved RAM."
         );
         return Ok(());
     }
@@ -236,8 +408,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     let mut computer = Computer::new();
+    let mut render_screen = true;
     match args.as_slice() {
         [path] => run_binary(&mut computer, Path::new(path))?,
+        [path, flag] if flag == "--interactive" => {
+            render_screen = false;
+            run_interactive_binary(&mut computer, Path::new(path))?
+        }
         [] => {
             let text_height = GLYPH_HEIGHT * 2 + LINE_SPACING;
             let first_line_y = (SCREEN_HEIGHT - text_height) / 2;
@@ -252,19 +429,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "usage: cpu [program.bin] | cpu assemble <source.asm> -o <output.bin> | cpu disassemble <input.bin> [-o <output.asm>]",
+                "usage: cpu [program.bin [--interactive]] | cpu assemble <source.asm> -o <output.bin> | cpu disassemble <input.bin> [-o <output.asm>]",
             )
             .into());
         }
     }
 
-    computer.update_screen()?;
+    if render_screen {
+        computer.update_screen()?;
+    }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
     fn program_runner_executes_operand_instructions_and_stops_at_halt() {
@@ -291,6 +471,69 @@ mod tests {
         assert!(error
             .to_string()
             .contains("truncated LoadAddress at byte 0"));
+    }
+
+    #[test]
+    fn wasd_pixel_program_moves_and_respects_screen_bounds() {
+        let program = assembler::assemble(include_str!("../wasd_board.asm")).unwrap();
+        let mut computer = Computer::new();
+        let mut offset = 0;
+
+        for _ in 0..20 {
+            offset = execute_interactive_step(&mut computer, &program, offset)
+                .unwrap()
+                .unwrap();
+        }
+        assert_eq!(computer.ram.output(cpu::computer::BOARD_X), 75);
+        assert_eq!(computer.ram.output(cpu::computer::BOARD_Y), 20);
+
+        computer.handle_input_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('w'),
+            KeyModifiers::NONE,
+        )));
+        for _ in 0..200 {
+            offset = execute_interactive_step(&mut computer, &program, offset)
+                .unwrap()
+                .unwrap();
+            if computer.ram.output(cpu::computer::BOARD_Y) == 19
+                && computer.ram.output(cpu::computer::KEY_EVENT_TYPE) == 0
+            {
+                break;
+            }
+        }
+        assert_eq!(computer.ram.output(cpu::computer::BOARD_Y), 19);
+
+        computer.handle_input_event(Event::Key(KeyEvent::new(
+            KeyCode::Char('a'),
+            KeyModifiers::NONE,
+        )));
+        for _ in 0..200 {
+            offset = execute_interactive_step(&mut computer, &program, offset)
+                .unwrap()
+                .unwrap();
+            if computer.ram.output(cpu::computer::BOARD_X) == 74
+                && computer.ram.output(cpu::computer::KEY_EVENT_TYPE) == 0
+            {
+                break;
+            }
+        }
+        assert_eq!(computer.ram.output(cpu::computer::BOARD_X), 74);
+
+        for _ in 0..74 {
+            computer.handle_input_event(Event::Key(KeyEvent::new(
+                KeyCode::Char('a'),
+                KeyModifiers::NONE,
+            )));
+            for _ in 0..200 {
+                offset = execute_interactive_step(&mut computer, &program, offset)
+                    .unwrap()
+                    .unwrap();
+                if computer.ram.output(cpu::computer::KEY_EVENT_TYPE) == 0 {
+                    break;
+                }
+            }
+        }
+        assert_eq!(computer.ram.output(cpu::computer::BOARD_X), 0);
     }
 
     #[test]

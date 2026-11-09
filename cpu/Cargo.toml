@@ -9,3 +9,6 @@ lto = "fat"            # Fat Link-Time Optimization across all crates (slow comp
 codegen-units = 1      # Single codegen unit allows the compiler to optimize the whole crate together
 panic = "abort"        # Abort on panic instead of unwinding (shaves code size and boosts speed)
 strip = true           # Remove debug symbols from the binary to shrink size
+
+[dependencies]
+crossterm = "0.29.0"

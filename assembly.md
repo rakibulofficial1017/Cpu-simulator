@@ -279,6 +279,37 @@ use jump targets to change the file position. The CPU can update its `PC` when
 a jump is executed, but this does not implement control flow in the file
 runner.
 
+Use `--interactive` to enable terminal keyboard and mouse capture during
+execution:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- cpu/sampleProgram.bin --interactive
+```
+
+In interactive mode, keyboard event type/code/modifiers are written to RAM
+addresses `0–2`. Mouse event type, held-button mask, and zero-based X/Y
+coordinates are written to addresses `3–8`; coordinates are 16-bit
+little-endian. Keyboard event types are pressed `1`, released `2`, repeat `3`.
+Mouse event types are pressed `1`, released `2`, moved/dragged `3`, scroll up
+`4`, scroll down `5`. The README lists the key-code and modifier values.
+Input is polled for up to 1 ms before each instruction, so brief programs may
+finish before input arrives. Interactive mode requires a terminal and does
+follow taken jumps using the program counter in the loaded binary. It does not
+fetch instructions from RAM. Without `--interactive`, the runner continues to
+execute the file sequentially.
+
+The included looping WASD pixel demo can be assembled and run interactively:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- assemble cpu/wasd_board.asm -o cpu/wasd_board.bin
+cargo run --manifest-path cpu/Cargo.toml -- cpu/wasd_board.bin --interactive
+```
+
+W/A/S/D move a yellow pixel on the bounded 150 × 40 RGB framebuffer, and
+Escape exits. The assembly polls and clears the keyboard event mailbox in
+reserved RAM; the interactive runner follows the `PC` selected by taken
+branches while ordinary program runs retain sequential execution.
+
 The decoder recognizes all assigned opcodes, but not every instruction can
 currently execute. `PUSH`, `POP`, `CALL`, `RET`, `INT`, `IRET`, and the shift
 and rotate instructions return an unsupported-instruction error. Stack
