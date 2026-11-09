@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Register8 {
     ACC,
@@ -16,16 +15,26 @@ pub enum Register16 {
     SP,
 }
 
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ALUOperation {
     Add,
+    Adc,
     Subtract,
+    Sbc,
     And,
     Or,
+    Xor,
+    Test,
     Not,
     Increment,
     Decrement,
+    ShiftLeft,
+    ShiftRight,
+    ShiftArithmeticRight,
+    RotateLeft,
+    RotateRight,
+    RotateCarryLeft,
+    RotateCarryRight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -92,6 +101,6 @@ pub enum MicroOp {
         ny: bool,
         f: bool,
         no: bool,
-    }
-
+        cin: bool,
+    },
 }

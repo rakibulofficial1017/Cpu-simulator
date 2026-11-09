@@ -1,72 +1,66 @@
-# Registers
-| Registers available | Description | Bits |
-|---------------------|-------------|------|
-| PC | Contains the address of the current program | 16 |
-| ACC | Contains the result of ALU operations | 8 |
-| TempA | Temporary register | 16 | 
-| TempB | Temporary register | 16 |
-| PSR | Program start register | 16 |
-| SR | The register containing statuses of a comparison in the format `[ZR][NG][LE][LT][GE][GT][NE][EQ]`| 8 |
-| AR | Address register | 16 |
-| DR | The data in the RAM in address stored in AR | 8 |
+# Machine Codes
 
-# Operations available:
-- ## Load (2 instructions)
-    - `Load address [address]`
-        - This puts address into `AR` which automatically updates `DR`
-    - `Load value [value]`
-        - This loads the value into `ACC`
-- ## Move (48 instructions)
-    - `Move [reg1] to [reg2]`
-        - reg1 can be register
-        - reg2 must be of: ACC, TempA, TempB, AR
-    - `Move [reg] to [address]`
-        - reg can be anything
-- ## Jump (27 instructions)
-    ### Absolute Jumps
-    - `Jump [address]` # value of AR
-        - sets PC to address
-    - `Jump rel [value]` # value of AR
-        - set PC + value
-    - `Jump relprogram [value]` value of AR
-        - set PC to PSR + value
-    ### Conditional Jumps
-    - `JEQ [address]|rel [value]|relprogram [value]`
-        - Executes the jump if the 1st LSB is 1, when compared is equal  
-    - `JNE [address]|rel [value]|relprogram [value]`
-        - Executes the jump if the 2nd LSB is 1, when compared is not equal
-    - `JGT [address]|rel [value]|relprogram [value]`
-        - Executes the jump if the 3rd LSB is 1, when compared is greater than
-    - `JGE [address]|rel [value]|relprogram [value]`
-        - Executes the jump if the 4th LSB is 1, when compared is greater than or equal
-    - `JLT [address]|rel [value]|relprogram [value]`
-        - Executes the jump if the 5th LSB is 1, when compared is less than
-    - `JLE [address]|rel [value]|relprogram [value]`
-        - Executes the jump if the 6th LSB is 1, when compared is less than or equal
-    - `JNG [address]|rel [value]|relprogram [value]`
-        - Executes the jump if the 7th LSB is 1, when compared is negative
-    - `JZR [address]|rel [value]|relprogram [value]`
-        - Executes the jump if the 8th LSB is 1, when compared is zero
+Each instruction, including each register-specific form, has its own 8-bit
+opcode. The opcode decoder accepts the 204 assigned values and rejects the 52
+reserved values as invalid.
 
-- ## Compare (56 instructions)
-    - `Compare [reg1] to [reg2]`
-        - Where reg1 is not equal to reg2
+## Register encoding
 
-- ## Push/Pop instructions (2 instructions)
-    - `Push`
-        - pushes the value of ACC to the stack
-    - `Pop`
-        - pops the last value of the stack and puts it in ACC
-- ## Miscellaneous instructions (41 instructions)
-    - `Add [reg]` (8 instructions)
-        - ACC = Add reg to ACC
-    - `Sub [reg]` (8 instructions)
-        - ACC = sub reg to ACC
-    - `And [reg]` (8 instructions)
-        - ACC = `[reg]` && ACC
-    - `Or [reg]` (8 instructions)
-        - ACC = `[reg]` || ACC
-    - `Not`
-        - ACC = `!ACC`
-    - `Xor [reg]` (8 instructions)
-        - ACC = `[reg] ^ ACC`
+Source registers, in encoding order:
+
+`PC, ACC, TempA, TempB, PSR, SR, AR, DR`
+
+Destination registers for `MOV` and `POP`:
+
+`ACC, AR, TempA, TempB`
+
+`SP` is internal to stack/control operations and is not directly encoded as a
+source or destination. `MOV` omits redundant self-moves. Transfers between
+8-bit and 16-bit registers zero-extend or truncate to the low byte,
+respectively.
+
+## Opcode allocation
+
+| Code range | Instruction | Allocation |
+|---|---|---|
+| `00` | `LDI` | Load an immediate byte into `ACC` |
+| `01` | `LDA` | Load a big-endian 16-bit immediate address into `AR` |
+| `02` | `STA` | Store `ACC` to the address in `AR` |
+| `03–1E` | `MOV source → destination` | One opcode per valid ordered source/destination pair; grouped by source, with destinations in the order above and self-moves omitted |
+| `1F–5E` | `CMP left, right` | All ordered source-register pairs; `1F + left_index × 8 + right_index` |
+| `5F–9E` | ALU operations | Eight source-register opcodes per operation, in source-register order |
+| `9F–A8` | `INC`, `DEC`, `NOT`, `SHL`, `SHR`, `SAR`, `ROL`, `ROR`, `RCL`, `RCR` | One opcode per operation |
+| `A9–B0` | `PUSH source` | One opcode per source register, in source-register order |
+| `B1–B4` | `POP destination` | One opcode per destination register, in destination-register order |
+| `B5–C3` | Jumps | `JMP`, `JZ`, `JNZ`, `JN`, `JNN`, `JC`, `JNC`, `JV`, `JNV`, `JE`, `JNE`, `JGT`, `JLT`, `JGE`, `JLE` |
+| `C4` | `CALL` | Call using the existing `AR` convention and internal `SP` |
+| `C5` | `RET` | Return |
+| `C6` | `HLT` | Halt |
+| `C7` | `NOP` | No operation |
+| `C8` | `INT` | Interrupt with an immediate interrupt number |
+| `C9` | `IRET` | Return from interrupt |
+| `CA` | `EI` | Enable interrupts |
+| `CB` | `DI` | Disable interrupts |
+| `CC–FF` | Reserved (`NULL`) | Invalid opcodes |
+
+ALU operation ranges and per-range source ordering:
+
+| Code range | Operation |
+|---|---|
+| `5F–66` | `ADD` |
+| `67–6E` | `ADC` |
+| `6F–76` | `SUB` |
+| `77–7E` | `SBC` |
+| `7F–86` | `AND` |
+| `87–8E` | `OR` |
+| `8F–96` | `XOR` |
+| `97–9E` | `TEST` |
+
+Each ALU source is treated as an 8-bit value using the lower eight bits of the
+register. `LDI` and `INT` are followed by one immediate byte. `LDA` is followed
+by a two-byte, big-endian address. `STA`, jumps, and `CALL` use the existing
+`AR` convention.
+
+The opcode decoder identifies instructions and register operands. Exact
+execution semantics for shifts/rotations, interrupt handling, and calls should
+be specified before implementing their execution behavior.

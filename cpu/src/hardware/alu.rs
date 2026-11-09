@@ -33,21 +33,42 @@ pub fn alu(
     let output = mux(anded, added, f);
     let final_output = mux(output, !output, no);
 
-    // Signed overflow for two's-complement addition.
-    let overflow = (!(final_x ^ final_y) & (final_x ^ added) & 0x8000) != 0;
+    // Detect the subtraction configuration:
+    // !(~x + y) = x - y
+    let is_subtraction =
+        f && nx && no && !zx && !zy && !ny && !cin;
 
-    // Signed comparison of the original operands.
+    // Signed overflow of the internal addition.
+    let signed_sum =
+        (final_x as i16 as i32)
+        + (final_y as i16 as i32)
+        + i32::from(cin);
+
+    let overflow =
+        signed_sum > i16::MAX as i32
+        || signed_sum < i16::MIN as i32;
+
+    // CY means carry for addition and no-borrow for subtraction.
+    let cy = if is_subtraction {
+        !carry
+    } else {
+        carry
+    };
+
     let signed_x = x as i16;
     let signed_y = y as i16;
 
     ALUResult {
         out: final_output,
+
         ng: select_bit(final_output, 15),
         zr: final_output == 0,
 
-        // Carry and overflow are meaningful for the addition path.
-        cy: f && carry,
-        ov: f && overflow,
+        cy,
+        ov: overflow,
+
+        cy_valid: f,
+        ov_valid: f && (!no || is_subtraction),
 
         eq: signed_x == signed_y,
         gt: signed_x > signed_y,
@@ -58,10 +79,16 @@ pub fn alu(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ALUResult {
     pub out: u16,
+
     pub ng: bool,
     pub zr: bool,
+
     pub cy: bool,
     pub ov: bool,
+
+    pub cy_valid: bool,
+    pub ov_valid: bool,
+
     pub eq: bool,
     pub gt: bool,
     pub lt: bool,

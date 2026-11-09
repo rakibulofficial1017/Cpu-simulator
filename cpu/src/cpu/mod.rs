@@ -4,3 +4,4 @@ pub mod instruction;
 pub mod decoder;
 pub mod control_unit;
 pub mod micro_op;
+pub mod interrupt_controller;

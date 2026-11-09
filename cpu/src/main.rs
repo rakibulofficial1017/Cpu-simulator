@@ -1,3 +1,4 @@
+#![allow(warnings)]
 
 mod hardware;
 mod cpu;
@@ -6,25 +7,32 @@ use cpu::computer::Computer;
 
 fn main() {
     let mut computer = Computer::new();
-
-    // Request RAM[1000] = 20.
-    computer.cpu.request_write(1000, 20);
-
-    // First tick: Low -> High. Write occurs.
-    let rising = computer.tick();
-
-    computer.cpu.ar.update(1000, true, rising);
-
-    // Second tick: High -> Low.    
     computer.tick();
-    
-    // Request a read from RAM[1000].
-    computer.cpu.request_read(1000);
-
-    // Third tick: Low -> High. Read response enters DR.
-    computer.tick();
-
+    computer.cpu.execute_micro_op(
+        cpu::micro_op::MicroOp::ALU { a: cpu::micro_op::ALUInput::Immediate(0), b: cpu::micro_op::ALUInput::Immediate(20), update_flags: false, compare: false, destination: cpu::micro_op::ALUDestination::ACC, zx: true, nx: false, zy: false, ny: false, f: true, no: false, cin: false }, true
+    );
+    computer.cpu.execute_micro_op(
+        cpu::micro_op::MicroOp::ALU { a: cpu::micro_op::ALUInput::Immediate(0), b: cpu::micro_op::ALUInput::Immediate(65535), update_flags: false, compare: false, destination: cpu::micro_op::ALUDestination::TempA, zx: true, nx: false, zy: false, ny: false, f: true, no: false, cin: false }, true
+    );
+    computer.cpu.execute_micro_op(
+        cpu::micro_op::MicroOp::ALU { a: cpu::micro_op::ALUInput::ACC, b: cpu::micro_op::ALUInput::TempA, update_flags: true, compare: true, destination: cpu::micro_op::ALUDestination::TempB, zx: false, nx: false, zy: false, ny: false, f: true, no: false, cin: false }, true
+    );
+    computer.cpu.execute_micro_op(
+    cpu::micro_op::MicroOp::ALU {
+        a: cpu::micro_op::ALUInput::Immediate(10),
+        b: cpu::micro_op::ALUInput::Immediate(20),
+        update_flags: true,
+        compare: false,
+        destination: cpu::micro_op::ALUDestination::TempB,
+        zx: false,
+        nx: false,
+        zy: false,
+        ny: false,
+        f: true,
+        no: false,
+        cin: true,
+    },
+    true,
+);
     computer.cpu.debug_registers();
-
-    assert_eq!(computer.cpu.dr.output(), 20);
 }

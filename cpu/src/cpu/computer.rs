@@ -37,27 +37,37 @@ impl Computer {
             !(request.read && request.write),
             "CPU cannot read and write simultaneously"
         );
+    let request = self.cpu.memory_request;
 
-        if request.write {
-            self.ram.update(
-                request.data,
-                true,
-                request.address,
-                rising_edge,
-            );
-        }
+    debug_assert!(
+        !(request.read && request.write),
+        "CPU cannot read and write simultaneously"
+    );
 
-        if request.read {
-            let data = self.ram.output(request.address);
+    if request.write {
+        self.ram.update(
+            request.data,
+            true,
+            request.address,
+            rising_edge,
+        );
 
-            self.cpu.receive_memory_response(
-                MemoryResponse { data },
-                rising_edge,
-            );
-        }
+        self.cpu.memory_ready = true;
+    }
 
-        // Each request is serviced only once.
-        self.cpu.clear_memory_request();
+    if request.read {
+        let data = self.ram.output(request.address);
+
+        self.cpu.receive_memory_response(
+            MemoryResponse { data },
+            rising_edge,
+        );
+
+        self.cpu.memory_ready = true;
+    }
+
+    self.cpu.clear_memory_request();
+
 
         true
     }

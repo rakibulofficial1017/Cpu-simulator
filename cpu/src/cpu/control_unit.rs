@@ -1,6 +1,7 @@
-
-
-use super::instruction::Opcode;
+use super::{
+    instruction::{BranchCondition, Instruction, Opcode},
+    micro_op::ALUOperation,
+};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ControlSignals {
@@ -10,117 +11,85 @@ pub struct ControlSignals {
     pub load_acc: bool,
     pub alu_enable: bool,
     pub alu_subtract: bool,
+    pub compare: bool,
     pub jump: bool,
     pub jump_if_zero: bool,
+    pub branch_condition: Option<BranchCondition>,
     pub stack_push: bool,
     pub stack_pop: bool,
+    pub instruction: Option<Instruction>,
 }
 
 pub struct InstructionDecoder;
 
 impl InstructionDecoder {
     pub fn decode(opcode: Opcode) -> ControlSignals {
-        match opcode {
-            Opcode::NOP => ControlSignals::default(),
+        let instruction = opcode.instruction();
+        let mut signals = ControlSignals {
+            instruction: Some(instruction),
+            ..Default::default()
+        };
 
-            Opcode::LDI => ControlSignals {
-                load_acc: true,
-                ..Default::default()
-            },
-
-            Opcode::LDA => ControlSignals {
-                memory_read: true,
-                ..Default::default()
-            },
-
-            Opcode::STA => ControlSignals {
-                memory_write: true,
-                ..Default::default()
-            },
-
-            Opcode::ADD => ControlSignals {
-                alu_enable: true,
-                ..Default::default()
-            },
-
-            Opcode::SUB => ControlSignals {
-                alu_enable: true,
-                alu_subtract: true,
-                ..Default::default()
-            },
-
-            Opcode::JMP => ControlSignals {
-                jump: true,
-                ..Default::default()
-            },
-
-            Opcode::JZ => ControlSignals {
-                jump_if_zero: true,
-                ..Default::default()
-            },
-
-            Opcode::PUSH => ControlSignals {
-                stack_push: true,
-                ..Default::default()
-            },
-
-            Opcode::POP => ControlSignals {
-                stack_pop: true,
-                ..Default::default()
-            },
-
-            Opcode::HLT => ControlSignals {
-                halt: true,
-                ..Default::default()
-            },
+        match instruction {
+            Instruction::LoadImmediate => signals.load_acc = true,
+            Instruction::LoadAddress => signals.memory_read = true,
+            Instruction::StoreAddress => signals.memory_write = true,
+            Instruction::Move { .. } => {}
+            Instruction::Alu { operation, .. } => {
+                signals.alu_enable = true;
+                signals.alu_subtract =
+                    matches!(operation, ALUOperation::Subtract | ALUOperation::Sbc);
+            }
+            Instruction::Compare { .. } => {
+                signals.alu_enable = true;
+                signals.alu_subtract = true;
+                signals.compare = true;
+            }
+            Instruction::Unary(_) => signals.alu_enable = true,
+            Instruction::Jump(condition) => {
+                signals.jump = condition == BranchCondition::Always;
+                signals.jump_if_zero = condition == BranchCondition::Zero;
+                signals.branch_condition = Some(condition);
+            }
+            Instruction::Call => signals.stack_push = true,
+            Instruction::Push(_) => signals.stack_push = true,
+            Instruction::Return | Instruction::Pop(_) => signals.stack_pop = true,
+            Instruction::Halt => signals.halt = true,
+            Instruction::Nop
+            | Instruction::Interrupt
+            | Instruction::InterruptReturn
+            | Instruction::EnableInterrupts
+            | Instruction::DisableInterrupts => {}
         }
+
+        signals
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-use super::micro_op::{MicroOp, Register16};
+    #[test]
+    fn decoder_exposes_register_specific_operation_details() {
+        let add_pc = InstructionDecoder::decode(Opcode::try_from(0x5F).unwrap());
+        let add_acc = InstructionDecoder::decode(Opcode::try_from(0x60).unwrap());
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ControlState {
-    Fetch,
-    Decode,
-    Execute,
-    Halt,
-}
-
-#[derive(Debug)]
-pub struct ControlUnit {
-    pub state: ControlState,
-    pub microstep: usize,
-}
-
-impl ControlUnit {
-    pub fn new() -> Self {
-        Self {
-            state: ControlState::Fetch,
-            microstep: 0,
-        }
-    }
-
-    pub fn reset(&mut self) {
-        self.state = ControlState::Fetch;
-        self.microstep = 0;
-    }
-
-    pub fn fetch_micro_op(&self) -> Option<MicroOp> {
-        match self.microstep {
-            0 => Some(MicroOp::Move16 {
-                source: Register16::PC,
-                destination: Register16::AR,
-            }),
-
-            1 => None, // Wait for memory response.
-
-            _ => None,
-        }
-    }
-
-    pub fn advance(&mut self) {
-        self.microstep += 1;
+        assert_eq!(
+            add_pc.instruction,
+            Some(Instruction::Alu {
+                operation: ALUOperation::Add,
+                source: super::super::instruction::SourceRegister::PC,
+            })
+        );
+        assert_eq!(
+            add_acc.instruction,
+            Some(Instruction::Alu {
+                operation: ALUOperation::Add,
+                source: super::super::instruction::SourceRegister::ACC,
+            })
+        );
+        assert!(add_pc.alu_enable);
+        assert!(add_acc.alu_enable);
     }
 }
