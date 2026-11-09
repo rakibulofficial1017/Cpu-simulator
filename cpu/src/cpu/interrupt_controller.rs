@@ -41,7 +41,8 @@ impl InterruptController {
             Interrupt::Display,
             Interrupt::IO,
         ]
-        .into_iter()
+        .iter()
+        .copied()
         .find(|interrupt| {
             self.pending & (1 << (*interrupt as u8)) != 0
         })
