@@ -43,6 +43,11 @@ pub struct MemoryResponse {
 pub enum InstructionExecutionError {
     InvalidOpcode(InvalidOpcode),
     OperandRequired(Instruction),
+    UnexpectedOperands {
+        instruction: Instruction,
+        expected: usize,
+        actual: usize,
+    },
     UnsupportedInstruction(Instruction),
 }
 
@@ -53,6 +58,14 @@ impl fmt::Display for InstructionExecutionError {
             Self::OperandRequired(instruction) => {
                 write!(formatter, "{instruction:?} requires operand bytes")
             }
+            Self::UnexpectedOperands {
+                instruction,
+                expected,
+                actual,
+            } => write!(
+                formatter,
+                "{instruction:?} expects {expected} operand byte(s), got {actual}"
+            ),
             Self::UnsupportedInstruction(instruction) => {
                 write!(
                     formatter,
@@ -111,18 +124,37 @@ impl CPU {
         }
     }
 
-    /// Decode and execute one opcode byte.
-    ///
-    /// This does not fetch trailing operand bytes or advance `PC`. Instructions
-    /// that need operands or have unresolved semantics return an error.
+    /// Decode and execute a one-byte instruction.
     pub fn execute_instruction(&mut self, opcode: u8) -> Result<(), InstructionExecutionError> {
+        self.execute_instruction_with_operands(opcode, &[])
+    }
+
+    /// Decode and execute an opcode with its trailing immediate operand bytes.
+    ///
+    /// This does not fetch instruction bytes or advance `PC`. `LDA` queues a
+    /// memory read at its immediate address; the computer services that request
+    /// on its next tick and places the result in `DR`.
+    pub fn execute_instruction_with_operands(
+        &mut self,
+        opcode: u8,
+        operands: &[u8],
+    ) -> Result<(), InstructionExecutionError> {
         let decoded = Decoder::decode(opcode).map_err(InstructionExecutionError::InvalidOpcode)?;
         let instruction = decoded.instruction;
+        let expected_operands = decoded.length() as usize - 1;
+
+        if operands.len() < expected_operands {
+            return Err(InstructionExecutionError::OperandRequired(instruction));
+        }
+        if operands.len() > expected_operands {
+            return Err(InstructionExecutionError::UnexpectedOperands {
+                instruction,
+                expected: expected_operands,
+                actual: operands.len(),
+            });
+        }
 
         match instruction {
-            Instruction::LoadImmediate | Instruction::LoadAddress | Instruction::Interrupt => {
-                return Err(InstructionExecutionError::OperandRequired(instruction));
-            }
             Instruction::Push(_)
             | Instruction::Pop(_)
             | Instruction::Call
@@ -136,7 +168,8 @@ impl CPU {
                 | ALUOperation::RotateCarryLeft
                 | ALUOperation::RotateCarryRight,
             )
-            | Instruction::InterruptReturn => {
+            | Instruction::InterruptReturn
+            | Instruction::Interrupt => {
                 return Err(InstructionExecutionError::UnsupportedInstruction(
                     instruction,
                 ));
@@ -151,6 +184,14 @@ impl CPU {
             Instruction::Halt => self.halted = true,
             Instruction::EnableInterrupts => self.interrupt_controller.enable(),
             Instruction::DisableInterrupts => self.interrupt_controller.disable(),
+            Instruction::LoadImmediate => {
+                self.acc.update(operands[0], true, true);
+            }
+            Instruction::LoadAddress => {
+                let address = u16::from_be_bytes([operands[0], operands[1]]);
+                self.ar.update(address, true, true);
+                self.request_read(address);
+            }
             Instruction::StoreAddress => {
                 self.request_write(self.ar.output(), self.acc.output());
             }
@@ -781,6 +822,55 @@ mod instruction_execution_tests {
             cpu.execute_instruction(0x00),
             Err(InstructionExecutionError::OperandRequired(
                 Instruction::LoadImmediate
+            ))
+        );
+        assert_eq!(cpu.ir.output(), 0);
+    }
+
+    #[test]
+    fn immediate_instructions_execute_with_operand_bytes() {
+        let mut cpu = CPU::new();
+        cpu.execute_instruction_with_operands(0x00, &[0x14])
+            .unwrap(); // LDI 0x14
+        assert_eq!(cpu.acc.output(), 0x14);
+
+        cpu.execute_instruction_with_operands(0x01, &[0x12, 0x34])
+            .unwrap(); // LDA 0x1234
+        assert_eq!(cpu.ar.output(), 0x1234);
+        assert!(cpu.memory_request.read);
+        assert_eq!(cpu.memory_request.address, 0x1234);
+    }
+
+    #[test]
+    fn operand_count_errors_do_not_modify_cpu_state() {
+        let mut cpu = CPU::new();
+        cpu.acc.update(0xAA, true, true);
+
+        assert_eq!(
+            cpu.execute_instruction_with_operands(0x00, &[]),
+            Err(InstructionExecutionError::OperandRequired(
+                Instruction::LoadImmediate
+            ))
+        );
+        assert_eq!(
+            cpu.execute_instruction_with_operands(0x00, &[0x14, 0x15]),
+            Err(InstructionExecutionError::UnexpectedOperands {
+                instruction: Instruction::LoadImmediate,
+                expected: 1,
+                actual: 2,
+            })
+        );
+        assert_eq!(cpu.acc.output(), 0xAA);
+        assert_eq!(cpu.ir.output(), 0);
+    }
+
+    #[test]
+    fn interrupt_number_is_accepted_but_execution_is_explicitly_unsupported() {
+        let mut cpu = CPU::new();
+        assert_eq!(
+            cpu.execute_instruction_with_operands(0xC8, &[0x02]),
+            Err(InstructionExecutionError::UnsupportedInstruction(
+                Instruction::Interrupt
             ))
         );
         assert_eq!(cpu.ir.output(), 0);

@@ -22,6 +22,25 @@ opcode table, and the current limits of single-opcode execution.
 `SP` is internal to stack/control operations. It is not encoded as a source or
 destination operand.
 
+## RAM map and screen
+
+The 64 KiB RAM is divided as follows:
+
+| Address range | Size | Purpose |
+|---|---:|---|
+| `0–99` | 100 bytes | System-reserved |
+| `100–18,099` | 18,000 bytes | 150 × 40 RGB screen framebuffer |
+| `18,100–65,535` | 47,436 bytes | General-purpose memory and stack |
+
+Screen pixels are stored in row-major order. Each pixel occupies three
+consecutive bytes: red, green, then blue. The first pixel starts at address
+`100`, and the final pixel occupies addresses `18,097–18,099`.
+
+Call `Computer::update_screen()` to redraw the framebuffer in the terminal.
+It moves the cursor to the home position and prints one ANSI true-color
+background space for each pixel. The method returns an I/O error if writing to
+stdout fails.
+
 The `SR` flag bits are:
 
 | Bit | Name | Meaning |
@@ -217,19 +236,22 @@ decoder. There are 204 assigned opcode values and 52 reserved values.
 
 ## Executing instructions in the simulator
 
-`CPU::execute_instruction(opcode: u8)` decodes and executes a single opcode
-byte. For example:
+`CPU::execute_instruction(opcode: u8)` executes a one-byte instruction.
+`CPU::execute_instruction_with_operands(opcode, operands)` executes an
+instruction with its trailing operand bytes. For example:
 
 ```rust
-cpu.execute_instruction(0x5F)?; // ADD PC
+cpu.execute_instruction_with_operands(0x00, &[0x14])?; // LDI 0x14
+cpu.execute_instruction_with_operands(0x01, &[0x12, 0x34])?; // LDA 0x1234
 ```
 
-The function does not fetch following operand bytes or advance `PC`. It
-returns an error for an unassigned opcode, for an instruction requiring
-operand bytes, or for an instruction whose execution behavior has not been
-implemented. Current operand-dependent instructions (`LDI`, `LDA`, `INT`),
-stack operations, calls/returns, interrupt return, and shifts/rotations are
-not executable through this single-byte interface yet.
+These methods do not fetch instruction bytes or advance `PC`. `LDA` queues a
+memory read at the immediate address; the computer services the request on its
+next tick and places the byte in `DR`. The methods return an error for an
+unassigned opcode, an incorrect number of operand bytes, or an instruction
+whose execution behavior has not been implemented. `INT` accepts its operand
+but is not yet executable; stack operations, calls/returns, interrupt return,
+and shifts/rotations are also not implemented.
 
 Execution behavior for the remaining instructions is still under development;
 the opcode assignments describe the ISA allocation, not a guarantee that every
