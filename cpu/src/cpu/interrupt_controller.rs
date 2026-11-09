@@ -43,9 +43,7 @@ impl InterruptController {
         ]
         .iter()
         .copied()
-        .find(|interrupt| {
-            self.pending & (1 << (*interrupt as u8)) != 0
-        })
+        .find(|interrupt| self.pending & (1 << (*interrupt as u8)) != 0)
     }
 
     pub fn enable(&mut self) {
@@ -57,6 +55,40 @@ impl InterruptController {
     }
     pub fn acknowledge(&mut self, interrupt: Interrupt) {
         self.clear(interrupt);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pending_interrupts_are_masked_until_enabled() {
+        let mut controller = InterruptController::new();
+        controller.request(Interrupt::Keyboard);
+
+        assert!(controller.has_pending());
+        assert_eq!(controller.next_pending(), None);
+
+        controller.enable();
+        assert_eq!(controller.next_pending(), Some(Interrupt::Keyboard));
+    }
+
+    #[test]
+    fn pending_interrupts_use_priority_order_and_can_be_acknowledged() {
+        let mut controller = InterruptController::new();
+        controller.request(Interrupt::IO);
+        controller.request(Interrupt::Timer);
+        controller.request(Interrupt::Keyboard);
+        controller.enable();
+
+        assert_eq!(controller.next_pending(), Some(Interrupt::Keyboard));
+        controller.acknowledge(Interrupt::Keyboard);
+        assert_eq!(controller.next_pending(), Some(Interrupt::Timer));
+        controller.acknowledge(Interrupt::Timer);
+        assert_eq!(controller.next_pending(), Some(Interrupt::IO));
+        controller.acknowledge(Interrupt::IO);
+        assert!(!controller.has_pending());
     }
 }
 

@@ -257,6 +257,17 @@ opcode bytes, and byte-offset comments. Reassembling its output reproduces the
 same bytes. Truncated immediate instructions are reported with the byte offset
 instead of producing incomplete assembly.
 
+Debug a binary one instruction at a time:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- debug program.bin
+```
+
+At the debugger prompt, `step` executes one instruction, `continue [count]`
+runs a bounded number of instructions, `regs` displays registers and decoded
+flags, `mem <address> [length]` shows a hex/ASCII RAM dump, and `screen`
+renders the framebuffer. Use `help` for the command list.
+
 Run the included screen-writing sample from the repository root with:
 
 ```sh

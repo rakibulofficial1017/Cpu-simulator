@@ -18,6 +18,7 @@ source to a program binary, and using the included examples. The
 - [Assemble and run a program](#assemble-and-run-a-program)
 - [Included examples](#included-examples)
 - [Disassemble a binary](#disassemble-a-binary)
+- [Debug a program](#debug-a-program)
 - [Run an interactive program](#run-an-interactive-program)
 - [CPU and memory overview](#cpu-and-memory-overview)
 - [Instruction support and simulator limitations](#instruction-support-and-simulator-limitations)
@@ -67,6 +68,7 @@ executable when using a release build.
 
 ```text
 cpu [program.bin [--interactive]]
+cpu debug <program.bin>
 cpu assemble <source.asm> -o <output.bin>
 cpu disassemble <input.bin> [-o <output.asm>]
 ```
@@ -87,6 +89,9 @@ cargo run --manifest-path cpu/Cargo.toml -- program.bin
 # Disassemble a binary to the terminal or save its assembly text
 cargo run --manifest-path cpu/Cargo.toml -- disassemble program.bin
 cargo run --manifest-path cpu/Cargo.toml -- disassemble program.bin -o program-disassembled.asm
+
+# Step through a binary and inspect CPU state or RAM
+cargo run --manifest-path cpu/Cargo.toml -- debug program.bin
 ```
 
 To run the release executable instead:
@@ -95,6 +100,7 @@ To run the release executable instead:
 ./cpu/target/release/cpu
 ./cpu/target/release/cpu assemble program.asm -o program.bin
 ./cpu/target/release/cpu program.bin
+./cpu/target/release/cpu debug program.bin
 ```
 
 On Windows, run `cpu.exe` (or `.\cpu.exe` in PowerShell) with the same
@@ -222,6 +228,31 @@ reassembled to reproduce the input bytes. It does not reconstruct symbolic
 labels; branch instructions retain their native `AR`-based form. A truncated
 immediate instruction is reported with its byte offset.
 
+## Debug a program
+
+Start the command-line debugger with a machine-code file:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- debug program.bin
+```
+
+The debugger begins at byte offset zero and accepts commands at its prompt:
+
+| Command | Action |
+|---|---|
+| `step` or `s` | Decode and execute one instruction, then show registers and flags |
+| `continue [count]` or `c` | Execute up to `count` instructions; defaults to 100,000 per command |
+| `regs` or `r` | Show registers in hexadecimal and decimal, and decode status flags |
+| `mem <address> [length]` or `m` | Display a hex/ASCII RAM dump; default length is 64 bytes, maximum 256 |
+| `screen` | Render the current RGB framebuffer |
+| `help` | Show debugger commands |
+| `quit` or `q` | Exit the debugger |
+
+Memory addresses accept decimal or `0x`-prefixed hexadecimal. The debugger
+follows taken jumps in the loaded binary and executes memory operations against
+the simulator's RAM. `continue` has a per-command instruction limit so a
+program loop returns control to the prompt.
+
 ## Run an interactive program
 
 Pass `--interactive` after the program path:
@@ -336,8 +367,11 @@ in `DR`; `STA` writes `ACC` to the address in `AR`.
 The decoder recognizes assigned opcodes for `PUSH`, `POP`, `CALL`, `RET`,
 `INT`, `IRET`, and shifts/rotates, but these instructions currently return an
 unsupported-instruction error. Their execution semantics are not yet
-implemented. Reserved opcodes are rejected. The runner reports invalid
-opcodes and truncated operands with their byte offsets.
+implemented. The interrupt controller itself is tested for masking, priority,
+acknowledgement, and CPU interrupt-entry scheduling; this does not mean that
+interrupt handlers or the `INT`/`IRET` instructions are executable yet.
+Reserved opcodes are rejected. The runner reports invalid opcodes and
+truncated operands with their byte offsets.
 
 The screen renderer uses ANSI terminal output. A 150-column display may wrap
 or clip on narrower terminals; increase the terminal width for accurate

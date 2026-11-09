@@ -835,6 +835,7 @@ IR    = {:08b},         : {:02x},           : {}
 #[cfg(test)]
 mod instruction_execution_tests {
     use super::*;
+    use crate::cpu::interrupt_controller::Interrupt;
 
     #[test]
     fn executes_register_moves_and_alu_opcodes() {
@@ -968,5 +969,34 @@ mod instruction_execution_tests {
             ))
         );
         assert_eq!(cpu.ir.output(), 0);
+    }
+
+    #[test]
+    fn enabled_pending_interrupt_starts_entry_and_acknowledges_request() {
+        let mut cpu = CPU::new();
+        cpu.pc.update(0x1234, true, false, false, true);
+        cpu.interrupt_controller.request(Interrupt::Timer);
+        cpu.interrupt_controller.enable();
+
+        cpu.check_interrupts();
+
+        assert!(cpu.in_interrupt);
+        assert_eq!(cpu.interrupt_vector, Interrupt::Timer as u8);
+        assert_eq!(cpu.interrupt_return_pc, 0x1234);
+        assert_eq!(cpu.interrupt_state, InterruptState::SavePCHigh);
+        assert_eq!(cpu.interrupt_controller.next_pending(), None);
+        assert!(!cpu.interrupt_controller.has_pending());
+    }
+
+    #[test]
+    fn masked_interrupt_does_not_start_entry() {
+        let mut cpu = CPU::new();
+        cpu.interrupt_controller.request(Interrupt::Display);
+
+        cpu.check_interrupts();
+
+        assert!(!cpu.in_interrupt);
+        assert_eq!(cpu.interrupt_state, InterruptState::Idle);
+        assert!(cpu.interrupt_controller.has_pending());
     }
 }
