@@ -1,4 +1,5 @@
 #![allow(warnings)]
+mod assembler;
 mod cpu;
 mod hardware;
 
@@ -130,13 +131,63 @@ fn run_binary(computer: &mut Computer, path: &Path) -> Result<(), Box<dyn Error>
     execute_program(computer, &program)
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut computer = Computer::new();
+fn assemble_file(source_path: &Path, output_path: &Path) -> Result<(), Box<dyn Error>> {
+    if source_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("asm")
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "assembly source path must have an .asm extension",
+        )
+        .into());
+    }
+    if output_path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("bin")
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "assembler output path must have a .bin extension",
+        )
+        .into());
+    }
 
-    let mut args = env::args_os().skip(1);
-    match (args.next(), args.next()) {
-        (Some(path), None) => run_binary(&mut computer, Path::new(&path))?,
-        (None, None) => {
+    let source = fs::read_to_string(source_path)?;
+    let binary = assembler::assemble(&source)?;
+    fs::write(output_path, binary)?;
+    Ok(())
+}
+
+fn run_assembler(args: &[std::ffi::OsString]) -> Result<(), Box<dyn Error>> {
+    if args.len() != 4 || args[2] != "-o" {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "usage: cpu assemble <source.asm> -o <output.bin>",
+        )
+        .into());
+    }
+    assemble_file(Path::new(&args[1]), Path::new(&args[3]))
+}
+
+fn main() -> Result<(), Box<dyn Error>> {
+    let args: Vec<_> = env::args_os().skip(1).collect();
+    if args.len() == 1 && matches!(args[0].to_str(), Some("-h" | "--help")) {
+        println!(
+            "Usage:\n  cpu [program.bin]\n  cpu assemble <source.asm> -o <output.bin>\n\nWithout a program path, runs the built-in screen demo."
+        );
+        return Ok(());
+    }
+    if args.first().and_then(|arg| arg.to_str()) == Some("assemble") {
+        return run_assembler(&args);
+    }
+
+    let mut computer = Computer::new();
+    match args.as_slice() {
+        [path] => run_binary(&mut computer, Path::new(path))?,
+        [] => {
             let text_height = GLYPH_HEIGHT * 2 + LINE_SPACING;
             let first_line_y = (SCREEN_HEIGHT - text_height) / 2;
 
@@ -150,7 +201,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "usage: cpu [path/to/program.bin]",
+                "usage: cpu [path/to/program.bin] | cpu assemble <source.asm> -o <output.bin>",
             )
             .into());
         }
@@ -189,5 +240,20 @@ mod tests {
         assert!(error
             .to_string()
             .contains("truncated LoadAddress at byte 0"));
+    }
+
+    #[test]
+    fn assembler_cli_writes_a_binary_program() {
+        let directory =
+            std::env::temp_dir().join(format!("cpu-assembler-test-{}", std::process::id()));
+        fs::create_dir_all(&directory).unwrap();
+        let source_path = directory.join("sample.asm");
+        let output_path = directory.join("sample.bin");
+        fs::write(&source_path, "LDI #0x14\nHLT\n").unwrap();
+
+        assemble_file(&source_path, &output_path).unwrap();
+
+        assert_eq!(fs::read(&output_path).unwrap(), [0x00, 0x14, 0xC6]);
+        fs::remove_dir_all(directory).unwrap();
     }
 }

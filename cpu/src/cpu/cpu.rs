@@ -34,6 +34,17 @@ const FLAG_EQ: u8 = 1 << 3;
 const FLAG_GT: u8 = 1 << 2;
 const FLAG_LT: u8 = 1 << 1;
 
+fn is_16_bit_source(source: SourceRegister) -> bool {
+    matches!(
+        source,
+        SourceRegister::PC
+            | SourceRegister::TempA
+            | SourceRegister::TempB
+            | SourceRegister::PSR
+            | SourceRegister::AR
+    )
+}
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct MemoryResponse {
     pub data: u8,
@@ -203,12 +214,36 @@ impl CPU {
                 self.write_destination(destination, value);
             }
             Instruction::Compare { left, right } => {
-                let left = self.read_source(left) as u8;
-                let right = self.read_source(right) as u8;
-                let (result, borrow) = left.overflowing_sub(right);
-                let signed_difference = left as i8 as i16 - right as i8 as i16;
-                let overflow = !(i8::MIN as i16..=i8::MAX as i16).contains(&signed_difference);
-                self.update_alu_flags(result, Some(!borrow), Some(overflow), Some((left, right)));
+                let left_value = self.read_source(left);
+                let right_value = self.read_source(right);
+                let both_16_bit = is_16_bit_source(left) && is_16_bit_source(right);
+
+                if both_16_bit {
+                    let result = left_value.wrapping_sub(right_value);
+                    let signed_difference = left_value as i16 as i32 - right_value as i16 as i32;
+                    let overflow =
+                        !(i16::MIN as i32..=i16::MAX as i32).contains(&signed_difference);
+                    self.update_compare_flags(
+                        result,
+                        left_value >= right_value,
+                        overflow,
+                        left_value as i16,
+                        right_value as i16,
+                        0x8000,
+                    );
+                } else {
+                    let left = left_value as u8;
+                    let right = right_value as u8;
+                    let (result, borrow) = left.overflowing_sub(right);
+                    let signed_difference = left as i8 as i16 - right as i8 as i16;
+                    let overflow = !(i8::MIN as i16..=i8::MAX as i16).contains(&signed_difference);
+                    self.update_alu_flags(
+                        result,
+                        Some(!borrow),
+                        Some(overflow),
+                        Some((left, right)),
+                    );
+                }
             }
             Instruction::Alu { operation, source } => {
                 let left = self.acc.output();
@@ -370,6 +405,41 @@ impl CPU {
             if left < right {
                 flags |= FLAG_LT;
             }
+        }
+        self.sr.update(flags, true, true);
+    }
+
+    fn update_compare_flags(
+        &mut self,
+        result: u16,
+        carry: bool,
+        overflow: bool,
+        left: i16,
+        right: i16,
+        sign_bit: u16,
+    ) {
+        let mut flags = self.sr.output()
+            & !(FLAG_ZR | FLAG_NG | FLAG_CY | FLAG_OV | FLAG_EQ | FLAG_GT | FLAG_LT);
+        if result == 0 {
+            flags |= FLAG_ZR;
+        }
+        if result & sign_bit != 0 {
+            flags |= FLAG_NG;
+        }
+        if carry {
+            flags |= FLAG_CY;
+        }
+        if overflow {
+            flags |= FLAG_OV;
+        }
+        if left == right {
+            flags |= FLAG_EQ;
+        }
+        if left > right {
+            flags |= FLAG_GT;
+        }
+        if left < right {
+            flags |= FLAG_LT;
         }
         self.sr.update(flags, true, true);
     }
@@ -790,6 +860,30 @@ mod instruction_execution_tests {
         assert_ne!(cpu.sr.output() & FLAG_LT, 0);
         cpu.execute_instruction(0xC1).unwrap(); // JLT
         assert_eq!(cpu.pc.output(), 0x2345);
+    }
+
+    #[test]
+    fn compare_uses_all_bits_when_both_sources_are_16_bit() {
+        let mut cpu = CPU::new();
+        cpu.temp_a.update(0x12AB, true, true);
+        cpu.ar.update(0x34AB, true, true);
+
+        cpu.execute_instruction(0x35).unwrap(); // CMP TempA, AR
+
+        assert_eq!(cpu.sr.output() & FLAG_EQ, 0);
+        assert_ne!(cpu.sr.output() & FLAG_LT, 0);
+    }
+
+    #[test]
+    fn compare_with_a_mixed_width_pair_keeps_8_bit_behavior() {
+        let mut cpu = CPU::new();
+        cpu.temp_a.update(0x0100, true, true);
+        cpu.acc.update(0x00, true, true);
+
+        cpu.execute_instruction(0x30).unwrap(); // CMP TempA, ACC
+
+        assert_ne!(cpu.sr.output() & FLAG_EQ, 0);
+        assert_eq!(cpu.sr.output() & FLAG_GT, 0);
     }
 
     #[test]

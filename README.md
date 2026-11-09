@@ -4,12 +4,22 @@ A Rust implementation of an 8-bit CPU with 16-bit address and temporary
 registers. This README covers the ISA, RAM and screen layout, the simulator
 runner, and the included raw-binary sample program.
 
+For readable instruction syntax and pseudo-instruction expansions, see the
+[assembly language reference](./assembly.md).
+
 ## Quick start
 
 From the repository root, run the built-in Hello World screen demo:
 
 ```sh
 cargo run --manifest-path cpu/Cargo.toml
+```
+
+Assemble a source file, then run the resulting binary:
+
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- assemble program.asm -o program.bin
+cargo run --manifest-path cpu/Cargo.toml -- program.bin
 ```
 
 Run the included raw machine-code sample instead:
@@ -147,8 +157,9 @@ transfer from a 16-bit register to an 8-bit register keeps the low byte.
 
 ### Compare
 
-`CMP left, right` compares the low eight bits of both source registers and
-updates the comparison status flags. The opcode is
+`CMP left, right` compares all 16 bits when both sources are 16-bit registers
+(`PC`, `TempA`, `TempB`, `PSR`, or `AR`). Otherwise it compares the low eight
+bits of both sources. It updates the comparison status flags. The opcode is
 `0x1F + left_index × 8 + right_index`, where indices use the source-register
 order above.
 
@@ -310,8 +321,9 @@ printf '\x00\x14\xc6' > hello.bin
 cargo run --manifest-path cpu/Cargo.toml -- hello.bin
 ```
 
-There is no assembler yet. The public CPU methods
-`execute_instruction(opcode)` and
+To assemble a source file, see the [assembly language reference](./assembly.md)
+or run `cargo run --manifest-path cpu/Cargo.toml -- assemble input.asm -o output.bin`.
+The public CPU methods `execute_instruction(opcode)` and
 `execute_instruction_with_operands(opcode, operands)` are also available to
 Rust callers. They execute one instruction at a time; neither fetches bytes
 from RAM nor advances `PC`.

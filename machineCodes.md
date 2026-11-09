@@ -27,7 +27,7 @@ respectively.
 | `01` | `LDA` | Load a big-endian 16-bit immediate address into `AR` |
 | `02` | `STA` | Store `ACC` to the address in `AR` |
 | `03–1E` | `MOV source → destination` | One opcode per valid ordered source/destination pair; grouped by source, with destinations in the order above and self-moves omitted |
-| `1F–5E` | `CMP left, right` | All ordered source-register pairs; `1F + left_index × 8 + right_index` |
+| `1F–5E` | `CMP left, right` | All ordered source-register pairs; `1F + left_index × 8 + right_index`; compares 16 bits when both sources are 16-bit, otherwise compares the low 8 bits |
 | `5F–9E` | ALU operations | Eight source-register opcodes per operation, in source-register order |
 | `9F–A8` | `INC`, `DEC`, `NOT`, `SHL`, `SHR`, `SAR`, `ROL`, `ROR`, `RCL`, `RCR` | One opcode per operation |
 | `A9–B0` | `PUSH source` | One opcode per source register, in source-register order |

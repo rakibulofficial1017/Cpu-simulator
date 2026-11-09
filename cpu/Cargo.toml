@@ -3,9 +3,6 @@ name = "cpu"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
-bitvec = "1.1.1"
-
 [profile.release]
 opt-level = 3          # Maximum level 3 optimizations for speed
 lto = "fat"            # Fat Link-Time Optimization across all crates (slow compile, max runtime speed)
