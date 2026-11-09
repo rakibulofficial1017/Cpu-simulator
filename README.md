@@ -186,6 +186,9 @@ repository root:
 ```sh
 cargo run --manifest-path cpu/Cargo.toml -- cpu/sampleProgram.bin
 ```
+```sh
+cargo run --manifest-path cpu/Cargo.toml -- cpu/wasd_board.bin --interactive
+```
 
 The equivalent built-in demo can be rendered without a program file:
 
